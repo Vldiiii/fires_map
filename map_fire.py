@@ -56,7 +56,7 @@ def load_border(path: Path):
 
     region = make_valid(unary_union(polys))
 
-    b = region.bounds  # (minx, miny, maxx, maxy)
+    b = region.bounds
     bbox = (b[0], b[1], b[2], b[3])
 
     geojson = {
@@ -74,11 +74,9 @@ def load_border(path: Path):
 @st.cache_data(show_spinner=False)
 def load_predictions(path: Path) -> pd.DataFrame:
 
-    # --- Google Drive (Streamlit Cloud) ---
     try:
         gdrive_url = st.secrets["GDRIVE_URL"]
         import requests, io
-        # Преобразуем ссылку для прямого скачивания
         if "drive.google.com" in gdrive_url:
             file_id = gdrive_url.split("/d/")[1].split("/")[0]
             url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
@@ -89,7 +87,6 @@ def load_predictions(path: Path) -> pd.DataFrame:
             r.raise_for_status()
             df = pd.read_csv(io.StringIO(r.content.decode("utf-8")), low_memory=False)
     except (KeyError, Exception):
-        # --- Локальный файл ---
         if not path.exists():
             st.error(f"Файл прогнозов не найден: {path}")
             return pd.DataFrame()
@@ -129,13 +126,6 @@ def risk_color(p: float) -> list:
     if p < 0.8: return [230, 100, 50,  190]
     return               [220, 40,  40,  210]
 
-def risk_label(p: float) -> str:
-    if p < 0.2: return "очень низкий"
-    if p < 0.4: return "низкий"
-    if p < 0.6: return "средний"
-    if p < 0.8: return "высокий"
-    return "очень высокий"
-
 with st.spinner("Загрузка данных..."):
     region, border_geojson, bbox = load_border(BORDER_FILE)
     df_all = load_predictions(PRED_FILE)
@@ -143,15 +133,7 @@ with st.spinner("Загрузка данных..."):
 if df_all.empty:
     st.stop()
 
-if df_all.empty:
-    st.warning("Нет данных — запустите prepare_map_data.py")
-    st.stop()
-
 st.sidebar.header("Фильтры")
-
-min_prob = st.sidebar.slider(
-    "Минимальная вероятность пожара, %", 0, 100, 0, step=5
-) / 100
 
 view_mode = st.sidebar.radio("Режим", ["Один день", "Неделя"])
 
@@ -175,22 +157,11 @@ else:
     )
     subtitle = f"{selected_date} — {end_date} (макс. за неделю)"
 
-view = view[view["fire_probability"] >= min_prob].copy()
-
 if view.empty:
     st.warning("Нет данных для выбранных фильтров")
     st.stop()
 
-view["color"]        = view["fire_probability"].apply(risk_color)
-view["risk_level"]   = view["fire_probability"].apply(risk_label)
-view["prob_percent"] = (view["fire_probability"] * 100).round(1)
-
-st.subheader(subtitle)
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Точек на карте",       f"{len(view):,}")
-c2.metric("Средняя вероятность",  f"{view['fire_probability'].mean()*100:.1f}%")
-c3.metric("Максимальная вероятность", f"{view['fire_probability'].max()*100:.1f}%")
-c4.metric("Фактических пожаров",  f"{int(view['fire'].sum()):,}")
+view["color"] = view["fire_probability"].apply(risk_color)
 
 layers = []
 
@@ -206,7 +177,6 @@ if border_geojson:
         pickable=False,
     ))
 
-# Точки прогноза
 layers.append(pdk.Layer(
     "ScatterplotLayer",
     data=view,
@@ -229,7 +199,6 @@ view_state = pdk.ViewState(
 tooltip = {
     "html": (
         "<b>Вероятность пожара:</b> {prob_percent}%<br/>"
-        "<b>Уровень риска:</b> {risk_level}<br/>"
         "<b>Координаты:</b> {lat}, {lon}"
     ),
     "style": {"background": "white", "padding": "8px", "borderRadius": "4px"}
@@ -240,19 +209,3 @@ st.pydeck_chart(
              tooltip=tooltip, map_style="light"),
     use_container_width=True,
 )
-
-st.sidebar.markdown("---\n### Уровни риска")
-for color, label in [
-    ([80,  180, 80],  "Очень низкий  (<20%)"),
-    ([180, 200, 80],  "Низкий        (20–40%)"),
-    ([230, 180, 60],  "Средний       (40–60%)"),
-    ([230, 100, 50],  "Высокий       (60–80%)"),
-    ([220, 40,  40],  "Очень высокий (>80%)"),
-]:
-    st.sidebar.markdown(
-        f"<div style='display:flex;align-items:center;margin:4px 0'>"
-        f"<span style='width:14px;height:14px;border-radius:50%;"
-        f"background:rgb({color[0]},{color[1]},{color[2]});"
-        f"display:inline-block;margin-right:8px'></span>{label}</div>",
-        unsafe_allow_html=True,
-    )
