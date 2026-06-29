@@ -10,7 +10,7 @@ from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 BASE_DIR = Path(__file__).parent
-PRED_FILE = BASE_DIR / "predictions_primorsky.csv"
+PRED_FILE = BASE_DIR / "predictions_primorsky.parquet"
 
 PRIMORSKY_COORDS = [
     [132.468373, 42.796184], [132.459961, 42.79442], [132.43936, 42.811927],
@@ -559,77 +559,16 @@ def load_border_from_coords(coords):
 
 
 @st.cache_data(show_spinner=False)
-@st.cache_data(show_spinner=False)
 def load_predictions(path: Path) -> pd.DataFrame:
-    df = None
+    if path.exists():
+        df = pd.read_parquet(path)
+        # Преобразуем колонки
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["date_only"] = df["date"].dt.date
+        return df
     
-    # Пробуем загрузить с Google Drive
-    try:
-        file_id = st.secrets.get("GDRIVE_URL", "")
-        if file_id:
-            import requests, io
-            # Если в secrets сохранен только ID
-            if "http" not in file_id:
-                url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
-            else:
-                url = file_id
-            
-            with st.spinner("Загрузка данных с Google Drive..."):
-                r = requests.get(url, timeout=300)
-                r.raise_for_status()
-                df = pd.read_csv(io.StringIO(r.content.decode("utf-8")), low_memory=False)
-                st.success("Данные загружены с Google Drive!")
-    except Exception as e:
-        st.warning(f"Не удалось загрузить с Google Drive: {e}")
-    
-    # Если не загрузилось с Google Drive, пробуем локальный файл
-    if df is None:
-        if not path.exists():
-            st.error(f"Файл прогнозов не найден: {path}")
-            return pd.DataFrame()
-        with st.spinner("Загрузка локального CSV..."):
-            df = pd.read_csv(path, low_memory=False)
-    
-    # Показываем названия колонок для отладки
-    st.write("Доступные колонки в файле:", df.columns.tolist())
-    
-    # Определяем названия колонок
-    date_col = None
-    lat_col = None
-    lon_col = None
-    prob_col = None
-    
-    for col in df.columns:
-        col_lower = col.lower()
-        if 'date' in col_lower or 'день' in col_lower or 'time' in col_lower:
-            date_col = col
-        elif 'lat' in col_lower or 'широт' in col_lower:
-            lat_col = col
-        elif 'lon' in col_lower or 'долгот' in col_lower or 'long' in col_lower:
-            lon_col = col
-        elif 'prob' in col_lower or 'вероятн' in col_lower or 'risk' in col_lower or 'fire' in col_lower:
-            prob_col = col
-    
-    if date_col is None:
-        st.error(f"Колонка с датой не найдена. Доступные колонки: {df.columns.tolist()}")
-        return pd.DataFrame()
-    
-    # Переименовываем колонки
-    df = df.rename(columns={
-        date_col: 'date',
-        lat_col: 'lat',
-        lon_col: 'lon',
-        prob_col: 'fire_probability'
-    })
-    
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
-    df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
-    df["fire_probability"] = pd.to_numeric(df["fire_probability"], errors="coerce")
-    df["fire"] = df.get("fire", 0).fillna(0).astype(int)
-    df = df.dropna(subset=["date", "lat", "lon", "fire_probability"])
-    df["date_only"] = df["date"].dt.date
-    return df
+    st.error("Файл данных не найден")
+    return pd.DataFrame()
 
 
 def filter_by_region(df: pd.DataFrame, region, bbox):
