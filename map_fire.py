@@ -1,7 +1,6 @@
 from datetime import timedelta
-import io
+from pathlib import Path
 import os
-import requests
 import pandas as pd
 import pydeck as pdk
 import streamlit as st
@@ -57,15 +56,24 @@ def load_border():
 
 @st.cache_data(show_spinner=False)
 def load_predictions() -> pd.DataFrame:
-    # Читаем ссылку из переменной окружения Railway
+    import requests, io
+
+    # Читаем ссылку — сначала из переменной окружения Railway, потом из st.secrets
     gdrive_url = os.environ.get("GDRIVE_URL", "")
     if not gdrive_url:
-        st.error("Переменная GDRIVE_URL не задана в Railway Variables")
-        return pd.DataFrame()
+        try:
+            gdrive_url = st.secrets["GDRIVE_URL"]
+        except Exception:
+            st.error("Переменная GDRIVE_URL не задана")
+            return pd.DataFrame()
 
-    # Извлекаем file_id из ссылки
+    # Извлекаем file_id из ссылки на файл или папку
     if "/d/" in gdrive_url:
         file_id = gdrive_url.split("/d/")[1].split("/")[0]
+    elif "/folders/" in gdrive_url:
+        # Ссылка на папку — не работает для прямого скачивания
+        st.error("Укажите ссылку на конкретный файл, а не папку")
+        return pd.DataFrame()
     else:
         file_id = gdrive_url
 
@@ -74,13 +82,11 @@ def load_predictions() -> pd.DataFrame:
         url = f"https://drive.google.com/uc?export=download&id={file_id}"
         r = session.get(url, stream=True, timeout=180)
 
-        # Получаем confirm token для больших файлов
         token = None
         for key, val in r.cookies.items():
             if key.startswith("download_warning"):
                 token = val
                 break
-
         if token:
             url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm={token}"
             r = session.get(url, stream=True, timeout=180)
@@ -88,7 +94,7 @@ def load_predictions() -> pd.DataFrame:
         content = b"".join(r.iter_content(chunk_size=1024 * 1024))
 
     if b"<html" in content[:200].lower():
-        st.error("Google Drive не отдал файл. Убедитесь что доступ 'Все у кого есть ссылка'.")
+        st.error("Google Drive не отдал файл. Убедитесь что доступ — Все у кого есть ссылка.")
         return pd.DataFrame()
 
     df = pd.read_csv(io.BytesIO(content), low_memory=False)
