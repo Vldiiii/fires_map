@@ -559,46 +559,13 @@ def load_border_from_coords(coords):
 
 
 @st.cache_data(show_spinner=False)
-@st.cache_data(show_spinner=False)
 def load_predictions(path: Path) -> pd.DataFrame:
     if not path.exists():
         st.error(f"Файл прогнозов не найден: {path}")
         return pd.DataFrame()
     
     df = pd.read_csv(path, low_memory=False)
-    
-    # Показываем названия колонок для отладки
-    st.write("Колонки в файле:", df.columns.tolist())
-    
-    # Определяем правильные названия колонок
-    date_col = None
-    lat_col = None
-    lon_col = None
-    prob_col = None
-    
-    for col in df.columns:
-        col_lower = col.lower()
-        if 'date' in col_lower or 'день' in col_lower:
-            date_col = col
-        elif 'lat' in col_lower or 'широт' in col_lower:
-            lat_col = col
-        elif 'lon' in col_lower or 'долгот' in col_lower or 'long' in col_lower:
-            lon_col = col
-        elif 'prob' in col_lower or 'вероятн' in col_lower or 'risk' in col_lower:
-            prob_col = col
-    
-    if date_col is None:
-        st.error(f"Колонка с датой не найдена. Доступные колонки: {df.columns.tolist()}")
-        return pd.DataFrame()
-    
-    # Переименовываем колонки в стандартные названия
-    df = df.rename(columns={
-        date_col: 'date',
-        lat_col: 'lat',
-        lon_col: 'lon',
-        prob_col: 'fire_probability'
-    })
-    
+
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["lat"] = pd.to_numeric(df["lat"], errors="coerce")
     df["lon"] = pd.to_numeric(df["lon"], errors="coerce")
